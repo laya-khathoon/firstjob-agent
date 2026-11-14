@@ -9,6 +9,7 @@ Two kinds of results:
 
 Every link is checked to respond before it is shown.
 """
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote
 
 import requests
@@ -19,8 +20,10 @@ HEADERS = {
                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"),
     "Accept-Language": "en-US,en;q=0.9",
 }
-TIMEOUT = 10
+TIMEOUT = 6
+LINK_TIMEOUT = 5
 MAX_LIVE = 10
+MAX_LINK_CHECKS = 14
 
 AICTE_URL = "https://internship.aicte-india.org/internships"
 
@@ -44,10 +47,10 @@ def build_search_pages(keywords):
 def link_works(url):
     """True if the URL responds without an error (HEAD first, GET fallback)."""
     try:
-        r = requests.head(url, headers=HEADERS, timeout=TIMEOUT, allow_redirects=True)
+        r = requests.head(url, headers=HEADERS, timeout=LINK_TIMEOUT, allow_redirects=True)
         if r.status_code < 400:
             return True
-        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT, stream=True)
+        r = requests.get(url, headers=HEADERS, timeout=LINK_TIMEOUT, stream=True)
         r.close()
         return r.status_code < 400
     except Exception:
@@ -103,26 +106,39 @@ def search_internships(keywords, progress=None):
     """
     pages = build_search_pages(keywords)
 
-    live = []
-    for page in pages:
-        if page["site"] != "Internshala":
-            continue
-        if progress:
-            progress(f"Fetching live {page['keyword']} internships from Internshala...")
-        html = _fetch(page["url"])
+    internshala = [p for p in pages if p["site"] == "Internshala"]
+
+    # Fetch the Internshala search pages in parallel.
+    if progress:
+        progress("Fetching live internships from Internshala...")
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        htmls = list(pool.map(_fetch, [p["url"] for p in internshala]))
+    postings = []
+    seen = set()
+    for page, html in zip(internshala, htmls):
         if not html:
             continue
         for posting in _parse_internshala(html, page["keyword"]):
-            if len(live) >= MAX_LIVE:
-                break
-            if link_works(posting["url"]):
-                live.append(posting)
+            if posting["url"] not in seen:
+                seen.add(posting["url"])
+                postings.append(posting)
 
-    working_pages = []
-    for page in pages:
-        if progress:
-            progress(f"Checking {page['site']}...")
-        if link_works(page["url"]):
-            working_pages.append(page)
+    # Check posting links in parallel and keep the first MAX_LIVE working ones.
+    if progress:
+        progress("Checking posting links...")
+    candidates = postings[:MAX_LINK_CHECKS]
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        checks = list(pool.map(link_works, [p["url"] for p in candidates]))
+    live = []
+    for posting, ok in zip(candidates, checks):
+        if ok and len(live) < MAX_LIVE:
+            live.append(posting)
+
+    # Check the board search pages in parallel.
+    if progress:
+        progress("Checking internship boards...")
+    with ThreadPoolExecutor(max_workers=7) as pool:
+        page_checks = list(pool.map(link_works, [p["url"] for p in pages]))
+    working_pages = [p for p, ok in zip(pages, page_checks) if ok]
 
     return {"keywords": [p["keyword"] for p in pages], "live": live, "pages": working_pages}
