@@ -98,9 +98,11 @@ def _parse_internshala(html, keyword):
     return postings
 
 
-def find_live_postings(keywords, progress=None):
+def find_live_postings(keywords, progress=None, max_live=MAX_LIVE,
+                       max_checks=MAX_LINK_CHECKS):
     """Phase 1: fetch and link-check real postings for the keywords.
 
+    max_live / max_checks can shrink the pass for quick resume-tuned searches.
     Returns {"live": [...], "pages": <all board pages for phase 2>,
              "fetched": n, "checked": n, "links_unverified": bool}.
     Never raises; network failures just shrink the list.
@@ -127,12 +129,12 @@ def find_live_postings(keywords, progress=None):
     # Check posting links in parallel and keep the first MAX_LIVE working ones.
     if progress:
         progress("Checking posting links...")
-    candidates = postings[:MAX_LINK_CHECKS]
+    candidates = postings[:max_checks]
     with ThreadPoolExecutor(max_workers=8) as pool:
         checks = list(pool.map(link_works, [p["url"] for p in candidates]))
     live = []
     for posting, ok in zip(candidates, checks):
-        if ok and len(live) < MAX_LIVE:
+        if ok and len(live) < max_live:
             live.append(posting)
 
     # If postings were fetched but every link check failed, the checks are
@@ -140,7 +142,7 @@ def find_live_postings(keywords, progress=None):
     # the site's own search page just now, so show them flagged unverified.
     links_unverified = False
     if not live and candidates:
-        live = candidates[:MAX_LIVE]
+        live = candidates[:max_live]
         links_unverified = True
 
     return {"live": live, "pages": pages, "fetched": len(postings),
