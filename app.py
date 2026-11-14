@@ -252,10 +252,32 @@ def main():
     if results is not None:
         live = results.get("live") or []
         pages = results.get("pages") or []
+        unverified = results.get("unverified_pages") or []
+        stats = results.get("stats") or {}
+
+        if analysis.get("source") == "fallback" and get_api_key():
+            st.caption("Gemini analysis did not respond, so keyword matching "
+                       "is on. Listings are still real.")
 
         if not live and not pages:
-            st.info("Nothing came through from the internship sites just now. "
-                    "Try again in a few minutes.")
+            st.warning("No verified listings came through from the internship "
+                       "sites just now.")
+            kws = analysis.get("search_keywords") or []
+            if kws:
+                st.caption("Searched for: "
+                           + " · ".join(f"**{k}**" for k in kws))
+            st.caption(
+                f"From this network: {stats.get('fetched', 0)} postings fetched, "
+                f"{stats.get('live_ok', 0)} passed the link check, "
+                f"{stats.get('boards_ok', 0)} of {stats.get('boards_total', 0)} "
+                "boards reachable. If these are all zero, the internship sites "
+                "are blocking this network - try the hosted demo link or a "
+                "different network.")
+            if unverified:
+                st.write("These board search pages could not be verified from "
+                         "this network, but they are the sites' own links:")
+                for page in unverified:
+                    show_page_card(page)
             to_learn = analysis.get("skills_to_learn") or []
             if to_learn:
                 st.write("The 2 skills that would unlock the most matches for you: "
@@ -268,6 +290,10 @@ def main():
             m2.metric("More boards", len(pages))
             m3.metric("Top fit", f"{top_fit}/100" if top_fit else "-")
 
+            if stats.get("links_unverified"):
+                st.caption("Link re-checks were blocked from this network, so "
+                           "the postings below come from the sites' search "
+                           "pages without a second verification.")
             if analysis:
                 show_analysis(analysis)
 
