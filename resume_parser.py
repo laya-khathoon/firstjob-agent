@@ -140,8 +140,10 @@ def extract_pdf_text(uploaded_file):
         raise ValueError("That PDF could not be read. Try a different file or paste the text instead.")
 
 
-def _heuristic_analysis(resume_text, role_areas):
-    """Keyword-scan fallback when Gemini is not available."""
+def heuristic_analysis(resume_text, role_areas):
+    """Instant keyword-scan analysis. Used as the Gemini fallback and to pick
+    the search keywords up front so the live search can start immediately,
+    in parallel with the slower Gemini analysis."""
     lower = resume_text.lower()
     skills = [s for s in KNOWN_SKILLS if s in lower]
     keywords = []
@@ -192,7 +194,7 @@ Return a JSON object with exactly these keys:
 - "skills_to_learn": the 2 skills that would most increase their internship matches in the chosen role areas and are NOT already in the resume"""
     data = ask_gemini_json(prompt, max_output_tokens=600)
     if not isinstance(data, dict) or not data.get("search_keywords"):
-        return _heuristic_analysis(resume_text, role_areas)
+        return heuristic_analysis(resume_text, role_areas)
     data["source"] = "gemini"
     return data
 
@@ -204,11 +206,13 @@ def _overlap_score(student_skills, text):
     return min(95, 30 + hits * 15) if hits else 25
 
 
-def score_fit(analysis, items, preferences=""):
+def score_fit(analysis, items, preferences="", use_gemini=True):
     """Add 'fit_score' (0-100) and 'fit_reason' to each item dict, in place.
 
     items: list of dicts with at least a title; may have company, skills etc.
     One batched Gemini call when possible; overlap heuristic otherwise.
+    use_gemini=False forces the instant local overlap score (used for the
+    board search-page cards, where a Gemini call adds little).
     Every field is written with .get-style safety: missing input keys are fine.
     """
     skills = analysis.get("skills") or []
@@ -223,7 +227,8 @@ Internships:
 
 Return a JSON list, same order, one object per internship: {{"score": <int>, "reason": "<one short line>"}}"""
     scores = (ask_gemini_json(prompt, max_output_tokens=1500)
-              if skills or any(it.get("skills") for it in items) else None)
+              if use_gemini and (skills or any(it.get("skills") for it in items))
+              else None)
     for i, item in enumerate(items):
         score, reason = None, ""
         if isinstance(scores, list) and i < len(scores) and isinstance(scores[i], dict):
