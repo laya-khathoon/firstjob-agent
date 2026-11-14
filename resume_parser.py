@@ -224,6 +224,7 @@ def heuristic_analysis(resume_text, role_areas):
                 keywords.append(kw)
     if not keywords:
         keywords = skills[:3]
+    n = len(skills)
     return {
         "skills": skills,
         "education": "",
@@ -231,6 +232,7 @@ def heuristic_analysis(resume_text, role_areas):
         "search_keywords": keywords[:3],
         "summary": "",
         "skills_to_learn": [],
+        "level": "beginner" if n <= 6 else "intermediate" if n <= 12 else "advanced",
         "source": "fallback",
     }
 
@@ -244,7 +246,7 @@ def analyze_resume(resume_text, role_areas, work_mode, stipend_required):
     if not resume_text or not resume_text.strip():
         return {"skills": [], "education": "", "projects": [],
                 "search_keywords": [], "summary": "",
-                "skills_to_learn": [], "source": "none"}
+                "skills_to_learn": [], "level": "", "source": "none"}
 
     prompt = f"""You are reading a student's resume to help them find internships.
 
@@ -262,6 +264,7 @@ Return a JSON object with exactly these keys:
 - "projects": list of short project descriptions (strings)
 - "search_keywords": the 2 or 3 best internship search keywords for this student. Each must be a simple, common role or skill term that internship sites use (examples: "machine learning", "python", "web development", "data analyst", "cyber security"). Prefer their strongest skills inside the chosen role areas.
 - "summary": one sentence about the student
+- "level": the student's experience level - "beginner" (mostly coursework), "intermediate" (some solid projects), or "advanced" (deep or many projects, or prior internships)
 - "skills_to_learn": the 2 skills that would most increase their internship matches in the chosen role areas and are NOT already in the resume"""
     data = ask_gemini_json(prompt, max_output_tokens=600)
     if not isinstance(data, dict) or not data.get("search_keywords"):
@@ -270,11 +273,30 @@ Return a JSON object with exactly these keys:
     return data
 
 
-def _overlap_score(student_skills, text):
-    """Crude fit score 0-100 from shared skill words (fallback path)."""
-    words = set(re.findall(r"[a-z+#]+", (text or "").lower()))
+_ENTRY_TERMS = ("intern", "trainee", "fresher", "junior", "entry level",
+                "entry-level", "graduate")
+_SENIOR_TERMS = ("senior", "lead", "manager", "head of", "principal",
+                 "staff engineer")
+
+
+def _overlap_score(student_skills, text, level=""):
+    """Crude fit score 0-100 from shared skill words (fallback path).
+
+    Level-aware: entry-level postings suit beginners, senior-titled ones
+    suit them less (and the reverse, mildly, for advanced students).
+    """
+    lower = (text or "").lower()
+    words = set(re.findall(r"[a-z+#]+", lower))
     hits = sum(1 for s in student_skills if any(tok in words for tok in s.lower().split()))
-    return min(95, 30 + hits * 15) if hits else 25
+    score = min(95, 30 + hits * 15) if hits else 25
+    if level == "beginner":
+        if any(t in lower for t in _ENTRY_TERMS):
+            score += 10
+        if any(t in lower for t in _SENIOR_TERMS):
+            score -= 15
+    elif level == "advanced" and any(t in lower for t in _SENIOR_TERMS):
+        score += 5
+    return score
 
 
 def score_fit(analysis, items, preferences="", use_gemini=True):
@@ -309,7 +331,7 @@ Return a JSON list, same order, one object per internship: {{"score": <int>, "re
             reason = str(scores[i].get("reason") or "")
         if score is None:
             basis = " ".join(str(item.get(k) or "") for k in ("title", "company", "keyword")) + " " + " ".join(item.get("skills") or [])
-            score = _overlap_score(skills, basis)
+            score = _overlap_score(skills, basis, analysis.get("level") or "")
             if not reason:
                 matched = [s for s in skills if s.lower().split()[0] in basis.lower()]
                 reason = ("Matches your " + ", ".join(matched[:3])) if matched else "Different area from your main skills"
