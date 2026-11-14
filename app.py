@@ -7,6 +7,8 @@ never invented by the AI. Nothing is stored; everything stays in session state.
 
 Run with:  python -m streamlit run app.py
 """
+import hashlib
+
 import streamlit as st
 
 from application_drafter import draft_application
@@ -223,23 +225,37 @@ def main():
                "left if it is hidden).")
     if st.button("Find Matching Internships", type="primary",
                  use_container_width=True):
-        with st.spinner("Reading your resume..."):
+        status = st.empty()
+        skeleton = st.empty()
+        # Resume analysis is cached per resume+answers, so tweaking the
+        # search (or a rerun) does not repeat the slowest Gemini call.
+        cache_key = hashlib.sha1(
+            (resume_text + "|" + ",".join(role_areas) + "|"
+             + work_mode + "|" + str(stipend_required)).encode()).hexdigest()
+        cache = st.session_state.setdefault("analysis_cache", {})
+        if cache_key in cache:
+            analysis = cache[cache_key]
+        else:
+            status.caption("Reading your resume with Gemini...")
             analysis = analyze_resume(resume_text, role_areas, work_mode,
                                       stipend_required)
+            cache[cache_key] = analysis
         st.session_state["analysis"] = analysis
-        skeleton = st.empty()
-        status = st.empty()
         with skeleton.container():
             show_skeleton()
         results = search_internships(
             analysis.get("search_keywords"),
             progress=lambda msg: status.caption(msg))
         skeleton.empty()
-        status.empty()
+        status.caption("Scoring your matches against the live postings...")
         preferences = (f"The student prefers {work_mode.lower()} work"
                        + (" and needs a stipend." if stipend_required else "."))
-        score_fit(analysis, results.get("live") or [], preferences)
-        score_fit(analysis, results.get("pages") or [], preferences)
+        # One batched scoring call covers both lists (items are dicts and are
+        # updated in place, so results['live']/['pages'] get their scores).
+        score_fit(analysis,
+                  (results.get("live") or []) + (results.get("pages") or []),
+                  preferences)
+        status.empty()
         st.session_state["results"] = results
         st.session_state.pop("_drafts_cleared", None)
         for key in [k for k in st.session_state if k.startswith("draft_")]:
