@@ -1,0 +1,23 @@
+SAMPLE STUDENT
+Final-year BTech Computer Science student, Kerala, India
+Email: sample.student@example.com
+
+EDUCATION
+BTech Computer Science and Engineering, 2022-2026 (final year)
+CGPA 7.6
+
+SKILLS
+Python, SQL, scikit-learn, pandas, NumPy, Streamlit, basic HTML/CSS and JavaScript,
+Git and GitHub, REST APIs, prompt engineering, data analysis, machine learning basics.
+
+PROJECTS
+1. RAG documentation chatbot: answers questions from technical docs using retrieval
+   augmented generation, with a live deployed demo (Python, Streamlit, Gemini API).
+2. Customer churn prediction: end-to-end ML pipeline (cleaning, features, model,
+   evaluation) deployed as a web app; F1 around 0.80.
+3. Student performance analysis: regression models on student data, 44 automated tests.
+4. Neural network from scratch in pure NumPy, about 96% accuracy on a public dataset.
+
+EXPERIENCE
+No formal internship yet. Looking for a first internship in AI/ML, data or web development.
+Open to remote or on-site (Kerala/Bangalore), stipend preferred.
