@@ -18,15 +18,43 @@ st.set_page_config(page_title="FirstJob Agent", page_icon="🎯", layout="center
 
 ROLE_AREAS = ["AI/ML", "web development", "data", "cybersecurity", "other"]
 
+st.markdown("""
+<style>
+.stApp { background: #f9f9f7; }
+.fja-hero h1 { font-size: 2.2rem; letter-spacing: -0.02em;
+               margin-bottom: 0.1rem; }
+.fja-hero p { color: #5f6368; font-size: 1.02rem; margin-top: 0; }
+.fja-chip { display: inline-block; background: #f0f1ee; color: #3c4043;
+            border: 1px solid #e0e2dc; border-radius: 4px;
+            padding: 1px 8px; margin: 2px 4px 2px 0; font-size: 0.78rem; }
+div[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 6px; }
+.fja-skel { background: #e8eae6; border-radius: 6px; height: 14px;
+            margin: 10px 0; animation: fja-pulse 1.2s ease-in-out infinite; }
+@keyframes fja-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+</style>
+""", unsafe_allow_html=True)
+
 
 def fit_badge(score):
     """Colored fit badge as a small HTML span. Missing scores render nothing."""
     if score is None:
         return ""
     color = "#1a7f37" if score >= 70 else "#9a6700" if score >= 40 else "#57606a"
-    return (f'<span style="background:{color};color:#fff;padding:2px 10px;'
-            f'border-radius:12px;font-size:0.85em;white-space:nowrap">'
+    return (f'<span style="background:{color};color:#fff;padding:2px 8px;'
+            f'border-radius:4px;font-size:0.8rem;white-space:nowrap">'
             f'Fit {score}/100</span>')
+
+
+def skill_chips(skills):
+    """Inline pill chips for a list of skills."""
+    return " ".join(f'<span class="fja-chip">{s}</span>' for s in skills[:8])
+
+
+def show_skeleton():
+    """Grey pulsing placeholder bars shown while the live search runs."""
+    for width in ("45%", "85%", "70%", "90%", "40%"):
+        st.markdown(f'<div class="fja-skel" style="width:{width}"></div>',
+                    unsafe_allow_html=True)
 
 
 def show_match_card(index, match, analysis):
@@ -46,15 +74,15 @@ def show_match_card(index, match, analysis):
 
         details = []
         if match.get("location"):
-            details.append(f"📍 {match['location']}")
+            details.append(match["location"])
         if match.get("stipend"):
-            details.append(f"💰 {match['stipend']}")
+            details.append(match["stipend"])
         if details:
             st.caption(" · ".join(details))
 
         skills = match.get("skills") or []
         if skills:
-            st.caption("Skills asked: " + ", ".join(skills[:8]))
+            st.markdown(skill_chips(skills), unsafe_allow_html=True)
 
         if match.get("fit_reason"):
             st.write(match["fit_reason"])
@@ -93,10 +121,49 @@ def show_page_card(page):
             st.link_button(f"Open {site}", page["url"])
 
 
+def show_analysis(analysis):
+    """Expandable summary of what the agent read from the resume."""
+    with st.expander("What the agent understood from your resume"):
+        if analysis.get("summary"):
+            st.write(analysis["summary"])
+        skills = analysis.get("skills") or []
+        if skills:
+            st.markdown("**Skills found:** " + skill_chips(skills),
+                        unsafe_allow_html=True)
+        if analysis.get("education"):
+            st.caption(f"Education: {analysis['education']}")
+        projects = analysis.get("projects") or []
+        if projects:
+            st.markdown("**Projects:**")
+            for project in projects[:4]:
+                st.markdown(f"- {project}")
+        keywords = analysis.get("search_keywords") or []
+        if keywords:
+            st.caption("Searching live boards for: "
+                       + " · ".join(f"**{k}**" for k in keywords))
+        to_learn = analysis.get("skills_to_learn") or []
+        if to_learn:
+            st.write("The 2 skills that would unlock the most matches for you: "
+                     f"**{', '.join(to_learn[:2])}**")
+
+
 def main():
-    st.title("🎯 FirstJob Agent")
-    st.caption("Find internships you actually qualify for. Real links only - "
-               "the AI never invents a listing.")
+    st.markdown('<div class="fja-hero"><h1>FirstJob Agent</h1>'
+                "<p>Find internships you actually qualify for. Every link is "
+                "fetched from the sites themselves - the AI never invents a "
+                "listing.</p></div>",
+                unsafe_allow_html=True)
+
+    with st.sidebar:
+        st.markdown("### How it works")
+        st.markdown("1. Upload or paste your resume\n"
+                    "2. Answer 3 quick questions\n"
+                    "3. Get real openings, fit scores and a ready-to-edit draft")
+        st.divider()
+        st.markdown("### Your 3 answers")
+        role_areas = st.multiselect("Role areas", ROLE_AREAS, default=["AI/ML"])
+        work_mode = st.selectbox("Work mode", ["Both", "Remote", "On-site"])
+        stipend_required = st.checkbox("Stipend required")
 
     if not get_api_key():
         st.warning("No Gemini API key found, so resume analysis and drafting are off. "
@@ -106,41 +173,39 @@ def main():
     # --- 1. Resume input -------------------------------------------------
     st.subheader("1. Your resume")
     resume_text = ""
-    uploaded = st.file_uploader("Upload your resume (PDF)", type=["pdf"])
-    if uploaded is not None:
-        try:
-            resume_text = extract_pdf_text(uploaded)
-            st.success("Resume read.")
-        except ValueError as exc:
-            st.error(str(exc))
-    pasted = st.text_area("...or paste your resume text", height=150,
-                          placeholder="Paste the text of your resume here")
-    if pasted.strip():
-        resume_text = pasted
+    up_col, paste_col = st.columns(2)
+    with up_col:
+        uploaded = st.file_uploader("Upload your resume (PDF)", type=["pdf"])
+        if uploaded is not None:
+            try:
+                resume_text = extract_pdf_text(uploaded)
+                st.success("Resume read.")
+            except ValueError as exc:
+                st.error(str(exc))
+    with paste_col:
+        pasted = st.text_area("...or paste your resume text", height=150,
+                              placeholder="Paste the text of your resume here")
+        if pasted.strip():
+            resume_text = pasted
 
-    # --- 2. Three questions ----------------------------------------------
-    st.subheader("2. Three quick questions")
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        role_areas = st.multiselect("Role areas", ROLE_AREAS,
-                                    default=["AI/ML"])
-    with col_b:
-        work_mode = st.selectbox("Work mode", ["Both", "Remote", "On-site"])
-    with col_c:
-        stipend_required = st.checkbox("Stipend required")
-
-    # --- 3. Search ---------------------------------------------------------
-    st.subheader("3. Your matches")
-    if st.button("Find Matching Internships", type="primary"):
+    # --- 2. Search ---------------------------------------------------------
+    st.subheader("2. Find my matches")
+    st.caption("Your 3 answers live in the sidebar (tap the > arrow at the top "
+               "left if it is hidden).")
+    if st.button("Find Matching Internships", type="primary",
+                 use_container_width=True):
         with st.spinner("Reading your resume..."):
             analysis = analyze_resume(resume_text, role_areas, work_mode,
                                       stipend_required)
         st.session_state["analysis"] = analysis
+        skeleton = st.empty()
         status = st.empty()
-        with st.spinner("Searching live internship boards..."):
-            results = search_internships(
-                analysis.get("search_keywords"),
-                progress=lambda msg: status.caption(msg))
+        with skeleton.container():
+            show_skeleton()
+        results = search_internships(
+            analysis.get("search_keywords"),
+            progress=lambda msg: status.caption(msg))
+        skeleton.empty()
         status.empty()
         preferences = (f"The student prefers {work_mode.lower()} work"
                        + (" and needs a stipend." if stipend_required else "."))
@@ -151,6 +216,7 @@ def main():
         for key in [k for k in st.session_state if k.startswith("draft_")]:
             del st.session_state[key]
 
+    # --- 3. Results --------------------------------------------------------
     analysis = st.session_state.get("analysis") or {}
     results = st.session_state.get("results")
 
@@ -166,22 +232,48 @@ def main():
                 st.write("The 2 skills that would unlock the most matches for you: "
                          f"**{', '.join(to_learn[:2])}**")
         else:
-            if live:
-                st.markdown(f"### Found live just now ({len(live)})")
-                for i, match in enumerate(live):
-                    show_match_card(i, match, analysis)
-            if pages:
-                st.markdown("### Live searches on the big boards")
-                for page in pages:
-                    show_page_card(page)
+            top_fit = max([m.get("fit_score") for m in live
+                           if isinstance(m.get("fit_score"), int)] or [0])
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Open right now", len(live))
+            m2.metric("More boards", len(pages))
+            m3.metric("Top fit", f"{top_fit}/100" if top_fit else "-")
+
+            if analysis:
+                show_analysis(analysis)
+
+            tab_live, tab_boards = st.tabs(
+                [f"Open right now ({len(live)})",
+                 f"More boards ({len(pages)})"])
+            with tab_live:
+                if live:
+                    for i, match in enumerate(live):
+                        show_match_card(i, match, analysis)
+                else:
+                    st.info("No postings we could read automatically just now - "
+                            "the boards tab still has live searches.")
+            with tab_boards:
+                if pages:
+                    for page in pages:
+                        show_page_card(page)
+                else:
+                    st.info("The board search pages were unreachable just now.")
 
         st.divider()
         st.caption("Every link above was fetched or checked just now. If a posting "
                    "was filled between our check and your click, the site will say so.")
 
     st.divider()
-    st.caption("Built for Code for a Billion 2026 · Your resume is never stored - "
-               "it stays in this browser session only.")
+    with st.expander("Privacy"):
+        st.markdown(
+            "- Your resume is processed in memory for this session only. "
+            "Nothing is written to disk or a database.\n"
+            "- Resume text is sent to the Gemini API to read your skills and "
+            "draft your application message.\n"
+            "- Internship listings are fetched live from public search pages. "
+            "We never store or alter them.\n"
+            "- No accounts, no tracking, no ads.")
+    st.caption("Built for Code for a Billion 2026.")
 
 
 if __name__ == "__main__":
