@@ -24,4 +24,4 @@ Rules:
 - Plain, warm, professional tone. No buzzwords.
 - One short paragraph on why they fit, one on what they want to learn, one line closing.
 - Output the message text only, no subject line, no commentary."""
-    return ask_gemini(prompt)
+    return ask_gemini(prompt, max_output_tokens=400)
