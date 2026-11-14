@@ -20,17 +20,41 @@ ROLE_AREAS = ["AI/ML", "web development", "data", "cybersecurity", "other"]
 
 st.markdown("""
 <style>
-.stApp { background: #f9f9f7; }
+@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@400;600&display=swap');
+body, p, h1, h2, h3, h4, h5, h6, span, label, button, a, input,
+textarea, li, summary, div {
+    font-family: 'Raleway', 'Source Sans Pro', sans-serif; }
+.fja-hero { animation: fja-fade 0.5s ease both; }
 .fja-hero h1 { font-size: 2.2rem; letter-spacing: -0.02em;
                margin-bottom: 0.1rem; }
-.fja-hero p { color: #5f6368; font-size: 1.02rem; margin-top: 0; }
-.fja-chip { display: inline-block; background: #f0f1ee; color: #3c4043;
-            border: 1px solid #e0e2dc; border-radius: 4px;
+.fja-hero p { color: #aab1d4; font-size: 1.02rem; margin-top: 0; }
+.fja-chip { display: inline-block; background: #424769; color: #e6e9f7;
+            border: 1px solid #676f9d; border-radius: 4px;
             padding: 1px 8px; margin: 2px 4px 2px 0; font-size: 0.78rem; }
-div[data-testid="stVerticalBlockBorderWrapper"] { border-radius: 6px; }
-.fja-skel { background: #e8eae6; border-radius: 6px; height: 14px;
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 6px; animation: fja-rise 0.45s ease both; }
+[data-testid="stTabs"] div[data-testid="stVerticalBlockBorderWrapper"]:nth-of-type(1) { animation-delay: 0.02s; }
+[data-testid="stTabs"] div[data-testid="stVerticalBlockBorderWrapper"]:nth-of-type(2) { animation-delay: 0.06s; }
+[data-testid="stTabs"] div[data-testid="stVerticalBlockBorderWrapper"]:nth-of-type(3) { animation-delay: 0.10s; }
+[data-testid="stTabs"] div[data-testid="stVerticalBlockBorderWrapper"]:nth-of-type(4) { animation-delay: 0.14s; }
+[data-testid="stTabs"] div[data-testid="stVerticalBlockBorderWrapper"]:nth-of-type(5) { animation-delay: 0.18s; }
+[data-testid="stTabs"] div[data-testid="stVerticalBlockBorderWrapper"]:nth-of-type(6) { animation-delay: 0.22s; }
+[data-testid="stTabs"] div[data-testid="stVerticalBlockBorderWrapper"]:nth-of-type(7) { animation-delay: 0.26s; }
+[data-testid="stTabs"] div[data-testid="stVerticalBlockBorderWrapper"]:nth-of-type(8) { animation-delay: 0.30s; }
+[data-testid="stTabs"] div[data-testid="stVerticalBlockBorderWrapper"]:nth-of-type(9) { animation-delay: 0.34s; }
+[data-testid="stTabs"] div[data-testid="stVerticalBlockBorderWrapper"]:nth-of-type(10) { animation-delay: 0.38s; }
+[data-testid="stMetric"] { animation: fja-rise 0.4s ease both; }
+.stButton button, .stLinkButton a {
+    transition: background-color 0.18s ease, border-color 0.18s ease,
+                color 0.18s ease; }
+.fja-skel { background: #424769; border-radius: 6px; height: 14px;
             margin: 10px 0; animation: fja-pulse 1.2s ease-in-out infinite; }
 @keyframes fja-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes fja-rise { from { opacity: 0; transform: translateY(10px); }
+                      to { opacity: 1; transform: none; } }
+@keyframes fja-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; } }
 </style>
 """, unsafe_allow_html=True)
 
@@ -39,8 +63,13 @@ def fit_badge(score):
     """Colored fit badge as a small HTML span. Missing scores render nothing."""
     if score is None:
         return ""
-    color = "#1a7f37" if score >= 70 else "#9a6700" if score >= 40 else "#57606a"
-    return (f'<span style="background:{color};color:#fff;padding:2px 8px;'
+    if score >= 70:
+        bg, fg = "#f9b17a", "#2d3250"
+    elif score >= 40:
+        bg, fg = "#676f9d", "#ffffff"
+    else:
+        bg, fg = "#424769", "#dfe2f2"
+    return (f'<span style="background:{bg};color:{fg};padding:2px 8px;'
             f'border-radius:4px;font-size:0.8rem;white-space:nowrap">'
             f'Fit {score}/100</span>')
 
