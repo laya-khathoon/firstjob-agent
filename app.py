@@ -330,6 +330,8 @@ def main():
         unverified = results.get("unverified_pages") or []
         stats = results.get("stats") or {}
 
+        if (analysis.get("source") == "gemini" and resume_parser.LAST_MODEL):
+            st.caption(f"Resume read by {resume_parser.LAST_MODEL}.")
         if analysis.get("source") == "fallback" and get_api_key():
             detail = f" ({resume_parser.LAST_ERROR})" if resume_parser.LAST_ERROR else ""
             st.warning("A Gemini key is set, but the analysis call failed"
