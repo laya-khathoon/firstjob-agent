@@ -134,11 +134,26 @@ def search_internships(keywords, progress=None):
         if ok and len(live) < MAX_LIVE:
             live.append(posting)
 
+    # If postings were fetched but every link check failed, the checks are
+    # being blocked from this network, not the links. These links came from
+    # the site's own search page just now, so show them flagged unverified.
+    links_unverified = False
+    if not live and candidates:
+        live = candidates[:MAX_LIVE]
+        links_unverified = True
+
     # Check the board search pages in parallel.
     if progress:
         progress("Checking internship boards...")
     with ThreadPoolExecutor(max_workers=7) as pool:
         page_checks = list(pool.map(link_works, [p["url"] for p in pages]))
     working_pages = [p for p, ok in zip(pages, page_checks) if ok]
+    unverified_pages = [p for p, ok in zip(pages, page_checks) if not ok]
 
-    return {"keywords": [p["keyword"] for p in pages], "live": live, "pages": working_pages}
+    stats = {"fetched": len(postings), "postings_checked": len(candidates),
+             "live_ok": 0 if links_unverified else len(live),
+             "boards_ok": len(working_pages), "boards_total": len(pages),
+             "links_unverified": links_unverified}
+    return {"keywords": [p["keyword"] for p in pages], "live": live,
+            "pages": working_pages, "unverified_pages": unverified_pages,
+            "stats": stats}
