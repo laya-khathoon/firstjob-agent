@@ -75,14 +75,21 @@ def _make_config(max_output_tokens):
         return None
 
 
+# Short description of the most recent Gemini failure (for the UI to show).
+# None means the last call worked, or no call has been made yet.
+LAST_ERROR = None
+
+
 def ask_gemini(prompt, max_output_tokens=None):
     """Send one prompt to Gemini. Returns the reply text, or None if no key."""
+    global LAST_ERROR
     client = get_client()
     if client is None:
         return None
     override = os.environ.get("GEMINI_MODEL")
     models = [override] if override else MODEL_CANDIDATES
     config = _make_config(max_output_tokens)
+    errors = []
     for model in models:
         # Try the fast config first; if this SDK/model rejects it, retry plain.
         for cfg in (config, None):
@@ -93,9 +100,12 @@ def ask_gemini(prompt, max_output_tokens=None):
                 else:
                     response = client.models.generate_content(
                         model=model, contents=prompt)
+                LAST_ERROR = None
                 return response.text
-            except Exception:
+            except Exception as exc:
+                errors.append(f"{model}: {exc}")
                 continue
+    LAST_ERROR = "; ".join(e[:160] for e in errors)[:300]
     return None
 
 
@@ -159,7 +169,9 @@ def analyze_resume(resume_text, role_areas, work_mode, stipend_required):
     simple keyword scan so the app still works for browsing.
     """
     if not resume_text or not resume_text.strip():
-        return _heuristic_analysis("", role_areas)
+        return {"skills": [], "education": "", "projects": [],
+                "search_keywords": [], "summary": "",
+                "skills_to_learn": [], "source": "none"}
 
     prompt = f"""You are reading a student's resume to help them find internships.
 
