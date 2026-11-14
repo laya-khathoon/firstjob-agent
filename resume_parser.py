@@ -53,31 +53,56 @@ def get_client():
     from google import genai
     try:
         from google.genai import types
-        http_options = types.HttpOptions(timeout=45000)
+        http_options = types.HttpOptions(timeout=30000)
         return genai.Client(api_key=key, http_options=http_options)
     except Exception:
         return genai.Client(api_key=key)
 
 
-def ask_gemini(prompt):
+def _make_config(max_output_tokens):
+    """Fast-generation config: capped output, thinking off. None if unsupported."""
+    try:
+        from google.genai import types
+        kwargs = {}
+        if max_output_tokens:
+            kwargs["max_output_tokens"] = max_output_tokens
+        try:
+            kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=0)
+        except Exception:
+            pass
+        return types.GenerateContentConfig(**kwargs) if kwargs else None
+    except Exception:
+        return None
+
+
+def ask_gemini(prompt, max_output_tokens=None):
     """Send one prompt to Gemini. Returns the reply text, or None if no key."""
     client = get_client()
     if client is None:
         return None
     override = os.environ.get("GEMINI_MODEL")
     models = [override] if override else MODEL_CANDIDATES
+    config = _make_config(max_output_tokens)
     for model in models:
-        try:
-            response = client.models.generate_content(model=model, contents=prompt)
-            return response.text
-        except Exception:
-            continue
+        # Try the fast config first; if this SDK/model rejects it, retry plain.
+        for cfg in (config, None):
+            try:
+                if cfg is not None:
+                    response = client.models.generate_content(
+                        model=model, contents=prompt, config=cfg)
+                else:
+                    response = client.models.generate_content(
+                        model=model, contents=prompt)
+                return response.text
+            except Exception:
+                continue
     return None
 
 
-def ask_gemini_json(prompt):
+def ask_gemini_json(prompt, max_output_tokens=None):
     """Ask Gemini for JSON and parse it tolerantly. Returns None on failure."""
-    text = ask_gemini(prompt + "\n\nReply with JSON only. No markdown fences, no commentary.")
+    text = ask_gemini(prompt + "\n\nReply with JSON only. No markdown fences, no commentary.",
+                      max_output_tokens=max_output_tokens)
     if not text:
         return None
     match = re.search(r"[\{\[].*[\}\]]", text, re.S)
@@ -140,7 +165,7 @@ def analyze_resume(resume_text, role_areas, work_mode, stipend_required):
 
 Resume text:
 \"\"\"
-{resume_text[:6000]}
+{resume_text[:3500]}
 \"\"\"
 
 The student is interested in these role areas: {', '.join(role_areas or ['any'])}.
@@ -153,7 +178,7 @@ Return a JSON object with exactly these keys:
 - "search_keywords": the 2 or 3 best internship search keywords for this student. Each must be a simple, common role or skill term that internship sites use (examples: "machine learning", "python", "web development", "data analyst", "cyber security"). Prefer their strongest skills inside the chosen role areas.
 - "summary": one sentence about the student
 - "skills_to_learn": the 2 skills that would most increase their internship matches in the chosen role areas and are NOT already in the resume"""
-    data = ask_gemini_json(prompt)
+    data = ask_gemini_json(prompt, max_output_tokens=600)
     if not isinstance(data, dict) or not data.get("search_keywords"):
         return _heuristic_analysis(resume_text, role_areas)
     data["source"] = "gemini"
@@ -185,7 +210,8 @@ Internships:
 {json.dumps([{k: it.get(k) for k in ('title', 'company', 'skills', 'keyword')} for it in items], ensure_ascii=False)}
 
 Return a JSON list, same order, one object per internship: {{"score": <int>, "reason": "<one short line>"}}"""
-    scores = ask_gemini_json(prompt) if skills or any(it.get("skills") for it in items) else None
+    scores = (ask_gemini_json(prompt, max_output_tokens=1500)
+              if skills or any(it.get("skills") for it in items) else None)
     for i, item in enumerate(items):
         score, reason = None, ""
         if isinstance(scores, list) and i < len(scores) and isinstance(scores[i], dict):
