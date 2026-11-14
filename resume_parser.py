@@ -8,13 +8,60 @@ import json
 import os
 import re
 
-# Models tried in order. The 2.5 family has free-tier quota for typical
-# AI Studio keys, so it goes first; a 429 RESOURCE_EXHAUSTED on one model
-# falls through to the next. Override with the GEMINI_MODEL environment
-# variable (or a Streamlit secret of the same name).
+# Fallback model order, used only if live discovery through the API fails.
+# Availability and free-tier quota vary by key and project, so the real list
+# comes from the models endpoint at runtime (see _discover_models). Override
+# with the GEMINI_MODEL environment variable (or a secret of the same name).
 MODEL_CANDIDATES = ["gemini-2.5-flash", "gemini-2.5-flash-lite",
                     "gemini-2.0-flash", "gemini-3.6-flash",
                     "gemini-3.5-flash", "gemini-3.8-flash"]
+
+# Model names that look like text generators but are not for this app.
+_SKIP_MODELS = ("embedding", "imagen", "tts", "aqa", "nano", "robotics")
+
+
+def _model_rank(name):
+    """Lower sorts first: flash, then flash-lite, then other gemini, then rest;
+    'latest' aliases ahead of dated versions inside each group."""
+    n = name.lower()
+    if "flash-lite" in n:
+        group = 1
+    elif "flash" in n:
+        group = 0
+    elif "gemini" in n:
+        group = 2
+    else:
+        group = 3
+    return (group, 0 if "latest" in n else 1, n)
+
+
+def _discover_models(client):
+    """Ask the API which models this key can actually use.
+
+    Returns an ordered list of model names that support generateContent,
+    or None if discovery failed. The result is cached for the process.
+    """
+    global _DISCOVERED
+    if _DISCOVERED:
+        return _DISCOVERED
+    models = []
+    try:
+        for m in client.models.list():
+            name = (getattr(m, "name", "") or "").split("/")[-1]
+            actions = (getattr(m, "supported_actions", None)
+                       or getattr(m, "supported_generation_methods", None) or [])
+            if "generateContent" not in actions:
+                continue
+            if any(bad in name.lower() for bad in _SKIP_MODELS):
+                continue
+            models.append(name)
+    except Exception:
+        return None
+    if not models:
+        return None
+    models.sort(key=_model_rank)
+    _DISCOVERED = models
+    return models
 
 # Skills we can spot without an LLM (fallback path).
 KNOWN_SKILLS = [
@@ -82,16 +129,27 @@ def _make_config(max_output_tokens):
 LAST_ERROR = None
 # Name of the model that answered the most recent successful call.
 LAST_MODEL = None
+# The model known to work with this key; tried first on later calls.
+WORKING_MODEL = None
+# Cached result of model discovery for this process.
+_DISCOVERED = None
 
 
 def ask_gemini(prompt, max_output_tokens=None):
     """Send one prompt to Gemini. Returns the reply text, or None if no key."""
-    global LAST_ERROR, LAST_MODEL
+    global LAST_ERROR, LAST_MODEL, WORKING_MODEL
     client = get_client()
     if client is None:
         return None
     override = os.environ.get("GEMINI_MODEL")
-    models = [override] if override else MODEL_CANDIDATES
+    if override:
+        models = [override]
+    else:
+        # The last working model goes first; behind it, the live-discovered
+        # list for this key, or the hardcoded candidates if discovery failed.
+        discovered = _discover_models(client) or MODEL_CANDIDATES
+        models = ([WORKING_MODEL] if WORKING_MODEL else []) \
+            + [m for m in discovered if m != WORKING_MODEL]
     config = _make_config(max_output_tokens)
     errors = []
     for model in models:
@@ -106,14 +164,16 @@ def ask_gemini(prompt, max_output_tokens=None):
                         model=model, contents=prompt)
                 LAST_ERROR = None
                 LAST_MODEL = model
+                WORKING_MODEL = model
                 return response.text
             except Exception as exc:
                 errors.append(f"{model}: {exc}")
                 msg = str(exc)
-                # Quota/auth errors are about the model or key, not the
-                # config - move straight to the next model.
-                if ("429" in msg or "RESOURCE_EXHAUSTED" in msg
-                        or "quota" in msg.lower() or "API key" in msg):
+                # 404/429/quota/auth errors are about the model or key, not
+                # the config - move straight to the next model.
+                if ("404" in msg or "429" in msg or "NOT_FOUND" in msg
+                        or "RESOURCE_EXHAUSTED" in msg or "API key" in msg
+                        or "quota" in msg.lower()):
                     break
                 continue
     LAST_ERROR = "; ".join(e[:160] for e in errors)[:300]
