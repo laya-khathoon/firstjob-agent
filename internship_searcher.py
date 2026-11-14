@@ -98,11 +98,12 @@ def _parse_internshala(html, keyword):
     return postings
 
 
-def search_internships(keywords, progress=None):
-    """Fetch live postings and verified search pages for the given keywords.
+def find_live_postings(keywords, progress=None):
+    """Phase 1: fetch and link-check real postings for the keywords.
 
-    Returns {"keywords": [...], "live": [...], "pages": [...]}.
-    Never raises; network failures just shrink the lists.
+    Returns {"live": [...], "pages": <all board pages for phase 2>,
+             "fetched": n, "checked": n, "links_unverified": bool}.
+    Never raises; network failures just shrink the list.
     """
     pages = build_search_pages(keywords)
 
@@ -142,18 +143,38 @@ def search_internships(keywords, progress=None):
         live = candidates[:MAX_LIVE]
         links_unverified = True
 
-    # Check the board search pages in parallel.
+    return {"live": live, "pages": pages, "fetched": len(postings),
+            "checked": len(candidates), "links_unverified": links_unverified}
+
+
+def check_board_pages(pages, progress=None):
+    """Phase 2: check the board search pages in parallel.
+
+    Returns (working_pages, unverified_pages). Never raises.
+    """
     if progress:
         progress("Checking internship boards...")
     with ThreadPoolExecutor(max_workers=7) as pool:
         page_checks = list(pool.map(link_works, [p["url"] for p in pages]))
     working_pages = [p for p, ok in zip(pages, page_checks) if ok]
     unverified_pages = [p for p, ok in zip(pages, page_checks) if not ok]
+    return working_pages, unverified_pages
 
-    stats = {"fetched": len(postings), "postings_checked": len(candidates),
-             "live_ok": 0 if links_unverified else len(live),
+
+def search_internships(keywords, progress=None):
+    """Fetch live postings and verified search pages for the given keywords.
+
+    Returns {"keywords": [...], "live": [...], "pages": [...]}.
+    Never raises; network failures just shrink the lists.
+    """
+    part = find_live_postings(keywords, progress)
+    pages = part["pages"]
+    working_pages, unverified_pages = check_board_pages(pages, progress)
+
+    stats = {"fetched": part["fetched"], "postings_checked": part["checked"],
+             "live_ok": 0 if part["links_unverified"] else len(part["live"]),
              "boards_ok": len(working_pages), "boards_total": len(pages),
-             "links_unverified": links_unverified}
-    return {"keywords": [p["keyword"] for p in pages], "live": live,
+             "links_unverified": part["links_unverified"]}
+    return {"keywords": [p["keyword"] for p in pages], "live": part["live"],
             "pages": working_pages, "unverified_pages": unverified_pages,
             "stats": stats}
