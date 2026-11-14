@@ -8,14 +8,15 @@ never invented by the AI. Nothing is stored; everything stays in session state.
 Run with:  python -m streamlit run app.py
 """
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 
 import streamlit as st
 
 import resume_parser
 from application_drafter import draft_application
-from internship_searcher import search_internships
+from internship_searcher import check_board_pages, find_live_postings
 from resume_parser import (analyze_resume, extract_pdf_text, get_api_key,
-                           score_fit)
+                           heuristic_analysis, score_fit)
 
 st.set_page_config(page_title="FirstJob Agent", page_icon="🎯", layout="centered")
 
@@ -254,29 +255,57 @@ def main():
             cache_key = resume_key(resume_text, role_areas, work_mode,
                                    stipend_required)
             cache = st.session_state.setdefault("analysis_cache", {})
-            if cache_key in cache:
-                analysis = cache[cache_key]
-            else:
-                status.caption("Reading your resume with Gemini...")
-                analysis = analyze_resume(resume_text, role_areas, work_mode,
-                                          stipend_required)
-                cache[cache_key] = analysis
-            st.session_state["analysis"] = analysis
+            analysis = cache.get(cache_key)
+            # The search keywords come from the instant keyword scan, so the
+            # live search starts right away and the slower Gemini analysis
+            # runs alongside it instead of ahead of it.
+            keywords = heuristic_analysis(resume_text,
+                                          role_areas)["search_keywords"]
             with skeleton.container():
                 show_skeleton()
-            results = search_internships(
-                analysis.get("search_keywords"),
-                progress=lambda msg: status.caption(msg))
-            skeleton.empty()
-            status.caption("Scoring your matches against the live postings...")
-            preferences = (f"The student prefers {work_mode.lower()} work"
-                           + (" and needs a stipend." if stipend_required else "."))
-            # One batched scoring call covers both lists (items are dicts and are
-            # updated in place, so results['live']/['pages'] get their scores).
-            score_fit(analysis,
-                      (results.get("live") or []) + (results.get("pages") or []),
-                      preferences)
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                # Gemini analysis runs alongside the live search, not ahead.
+                future = (None if analysis is not None else
+                          pool.submit(analyze_resume, resume_text, role_areas,
+                                      work_mode, stipend_required))
+                part = find_live_postings(
+                    keywords,
+                    progress=lambda msg: status.caption(
+                        ("Reading your resume; " if analysis is None else "")
+                        + msg))
+                if future is not None:
+                    analysis = future.result()
+                    cache[cache_key] = analysis
+                skeleton.empty()
+                # Show the keywords actually searched.
+                analysis["search_keywords"] = list(keywords)
+                status.caption("Scoring your matches and checking boards...")
+                preferences = (
+                    f"The student prefers {work_mode.lower()} work"
+                    + (" and needs a stipend." if stipend_required else "."))
+                # Gemini scores the real postings while the board search
+                # pages are link-checked in a worker thread at the same time.
+                boards_future = pool.submit(check_board_pages, part["pages"])
+                score_fit(analysis, part["live"], preferences)
+                working_pages, unverified_pages = boards_future.result()
+            # Board cards get the instant local score.
+            score_fit(analysis, working_pages, preferences, use_gemini=False)
             status.empty()
+            results = {
+                "keywords": [p["keyword"] for p in part["pages"]],
+                "live": part["live"],
+                "pages": working_pages,
+                "unverified_pages": unverified_pages,
+                "stats": {
+                    "fetched": part["fetched"],
+                    "postings_checked": part["checked"],
+                    "live_ok": 0 if part["links_unverified"] else len(part["live"]),
+                    "boards_ok": len(working_pages),
+                    "boards_total": len(part["pages"]),
+                    "links_unverified": part["links_unverified"],
+                },
+            }
+            st.session_state["analysis"] = analysis
             st.session_state["results"] = results
             st.session_state["results_key"] = cache_key
         st.session_state.pop("_drafts_cleared", None)
