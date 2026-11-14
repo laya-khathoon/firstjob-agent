@@ -11,6 +11,7 @@ import hashlib
 
 import streamlit as st
 
+import resume_parser
 from application_drafter import draft_application
 from internship_searcher import search_internships
 from resume_parser import (analyze_resume, extract_pdf_text, get_api_key,
@@ -59,6 +60,13 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     * { animation: none !important; transition: none !important; } }
 </style>
 """, unsafe_allow_html=True)
+
+
+def resume_key(resume_text, role_areas, work_mode, stipend_required):
+    """Hash of the resume + answers; identifies what the results belong to."""
+    raw = (resume_text + "|" + ",".join(role_areas) + "|"
+           + work_mode + "|" + str(stipend_required)).encode()
+    return hashlib.sha1(raw).hexdigest()
 
 
 def fit_badge(score):
@@ -132,6 +140,9 @@ def show_match_card(index, match, analysis):
                         st.session_state[f"draft_{index}"] = (
                             draft_application(analysis, match)
                             or "Drafting failed. Try again.")
+                        if (st.session_state[f"draft_{index}"].startswith("Drafting failed")
+                                and resume_parser.LAST_ERROR):
+                            st.caption(f"Gemini said: {resume_parser.LAST_ERROR}")
         if st.session_state.get(f"draft_{index}"):
             st.text_area("Your draft - read it and edit before sending:",
                          value=st.session_state[f"draft_{index}"],
@@ -198,7 +209,9 @@ def main():
 
     if not get_api_key():
         st.warning("No Gemini API key found, so resume analysis and drafting are off. "
-                   "Set GEMINI_API_KEY (or add it in Streamlit Secrets) to switch them on. "
+                   "Running locally: create .streamlit/secrets.toml next to app.py with one line - "
+                   'GEMINI_API_KEY = "your-key" - then restart. '
+                   "On Streamlit Cloud: add it under Settings > Secrets. "
                    "You can still browse live internship searches below.")
 
     # --- 1. Resume input -------------------------------------------------
@@ -225,38 +238,47 @@ def main():
                "left if it is hidden).")
     if st.button("Find Matching Internships", type="primary",
                  use_container_width=True):
-        status = st.empty()
-        skeleton = st.empty()
-        # Resume analysis is cached per resume+answers, so tweaking the
-        # search (or a rerun) does not repeat the slowest Gemini call.
-        cache_key = hashlib.sha1(
-            (resume_text + "|" + ",".join(role_areas) + "|"
-             + work_mode + "|" + str(stipend_required)).encode()).hexdigest()
-        cache = st.session_state.setdefault("analysis_cache", {})
-        if cache_key in cache:
-            analysis = cache[cache_key]
+        if not resume_text.strip():
+            # Never search without a resume - and drop any stale results.
+            st.session_state.pop("results", None)
+            st.session_state.pop("analysis", None)
+            st.session_state.pop("results_key", None)
+            st.warning("Add your resume in step 1 first - upload the PDF or "
+                       "paste the text. The agent reads it to find internships "
+                       "you actually qualify for.")
         else:
-            status.caption("Reading your resume with Gemini...")
-            analysis = analyze_resume(resume_text, role_areas, work_mode,
-                                      stipend_required)
-            cache[cache_key] = analysis
-        st.session_state["analysis"] = analysis
-        with skeleton.container():
-            show_skeleton()
-        results = search_internships(
-            analysis.get("search_keywords"),
-            progress=lambda msg: status.caption(msg))
-        skeleton.empty()
-        status.caption("Scoring your matches against the live postings...")
-        preferences = (f"The student prefers {work_mode.lower()} work"
-                       + (" and needs a stipend." if stipend_required else "."))
-        # One batched scoring call covers both lists (items are dicts and are
-        # updated in place, so results['live']/['pages'] get their scores).
-        score_fit(analysis,
-                  (results.get("live") or []) + (results.get("pages") or []),
-                  preferences)
-        status.empty()
-        st.session_state["results"] = results
+            status = st.empty()
+            skeleton = st.empty()
+            # Resume analysis is cached per resume+answers, so tweaking the
+            # search (or a rerun) does not repeat the slowest Gemini call.
+            cache_key = resume_key(resume_text, role_areas, work_mode,
+                                   stipend_required)
+            cache = st.session_state.setdefault("analysis_cache", {})
+            if cache_key in cache:
+                analysis = cache[cache_key]
+            else:
+                status.caption("Reading your resume with Gemini...")
+                analysis = analyze_resume(resume_text, role_areas, work_mode,
+                                          stipend_required)
+                cache[cache_key] = analysis
+            st.session_state["analysis"] = analysis
+            with skeleton.container():
+                show_skeleton()
+            results = search_internships(
+                analysis.get("search_keywords"),
+                progress=lambda msg: status.caption(msg))
+            skeleton.empty()
+            status.caption("Scoring your matches against the live postings...")
+            preferences = (f"The student prefers {work_mode.lower()} work"
+                           + (" and needs a stipend." if stipend_required else "."))
+            # One batched scoring call covers both lists (items are dicts and are
+            # updated in place, so results['live']/['pages'] get their scores).
+            score_fit(analysis,
+                      (results.get("live") or []) + (results.get("pages") or []),
+                      preferences)
+            status.empty()
+            st.session_state["results"] = results
+            st.session_state["results_key"] = cache_key
         st.session_state.pop("_drafts_cleared", None)
         for key in [k for k in st.session_state if k.startswith("draft_")]:
             del st.session_state[key]
@@ -264,6 +286,14 @@ def main():
     # --- 3. Results --------------------------------------------------------
     analysis = st.session_state.get("analysis") or {}
     results = st.session_state.get("results")
+    if results is not None and st.session_state.get("results_key") != resume_key(
+            resume_text, role_areas, work_mode, stipend_required):
+        # The resume or answers changed after the search ran - these results
+        # belong to the old inputs, so hide them.
+        results = None
+        if resume_text.strip():
+            st.info("Your resume or answers changed since the last search - "
+                    "press Find Matching Internships again to refresh.")
 
     if results is not None:
         live = results.get("live") or []
@@ -272,8 +302,11 @@ def main():
         stats = results.get("stats") or {}
 
         if analysis.get("source") == "fallback" and get_api_key():
-            st.caption("Gemini analysis did not respond, so keyword matching "
-                       "is on. Listings are still real.")
+            detail = f" ({resume_parser.LAST_ERROR})" if resume_parser.LAST_ERROR else ""
+            st.warning("A Gemini key is set, but the analysis call failed"
+                       f"{detail}, so keyword matching is on. Listings are "
+                       "still real. If this keeps happening, check that the "
+                       "key in .streamlit/secrets.toml is valid and has quota.")
 
         if not live and not pages:
             st.warning("No verified listings came through from the internship "
