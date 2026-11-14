@@ -8,11 +8,13 @@ import json
 import os
 import re
 
-# Models tried in order. gemini-3.8-flash (the newest free-tier Flash) was
-# returning 503 "high demand" at build time and the SDK retries it for minutes,
-# so the default order starts with the fastest reliable one. Override with the
-# GEMINI_MODEL environment variable (or a Streamlit secret of the same name).
-MODEL_CANDIDATES = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.8-flash"]
+# Models tried in order. The 2.5 family has free-tier quota for typical
+# AI Studio keys, so it goes first; a 429 RESOURCE_EXHAUSTED on one model
+# falls through to the next. Override with the GEMINI_MODEL environment
+# variable (or a Streamlit secret of the same name).
+MODEL_CANDIDATES = ["gemini-2.5-flash", "gemini-2.5-flash-lite",
+                    "gemini-2.0-flash", "gemini-3.6-flash",
+                    "gemini-3.5-flash", "gemini-3.8-flash"]
 
 # Skills we can spot without an LLM (fallback path).
 KNOWN_SKILLS = [
@@ -78,11 +80,13 @@ def _make_config(max_output_tokens):
 # Short description of the most recent Gemini failure (for the UI to show).
 # None means the last call worked, or no call has been made yet.
 LAST_ERROR = None
+# Name of the model that answered the most recent successful call.
+LAST_MODEL = None
 
 
 def ask_gemini(prompt, max_output_tokens=None):
     """Send one prompt to Gemini. Returns the reply text, or None if no key."""
-    global LAST_ERROR
+    global LAST_ERROR, LAST_MODEL
     client = get_client()
     if client is None:
         return None
@@ -101,9 +105,16 @@ def ask_gemini(prompt, max_output_tokens=None):
                     response = client.models.generate_content(
                         model=model, contents=prompt)
                 LAST_ERROR = None
+                LAST_MODEL = model
                 return response.text
             except Exception as exc:
                 errors.append(f"{model}: {exc}")
+                msg = str(exc)
+                # Quota/auth errors are about the model or key, not the
+                # config - move straight to the next model.
+                if ("429" in msg or "RESOURCE_EXHAUSTED" in msg
+                        or "quota" in msg.lower() or "API key" in msg):
+                    break
                 continue
     LAST_ERROR = "; ".join(e[:160] for e in errors)[:300]
     return None
