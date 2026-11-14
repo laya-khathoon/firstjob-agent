@@ -276,18 +276,50 @@ def main():
                 if future is not None:
                     analysis = future.result()
                     cache[cache_key] = analysis
+                # Second, resume-tuned pass: the skills and keywords Gemini
+                # read from THIS resume become extra search terms, so two
+                # different resumes no longer return the same listings.
+                wanted = ((analysis.get("search_keywords") or [])
+                          + (analysis.get("skills") or []))
+                extra = []
+                seen_terms = {k.lower() for k in keywords}
+                for term in wanted:
+                    t = (term or "").strip()
+                    if (t and 1 <= len(t.split()) <= 3
+                            and t.lower() not in seen_terms):
+                        seen_terms.add(t.lower())
+                        extra.append(t)
+                    if len(extra) == 2:
+                        break
+                if extra:
+                    status.caption("Adding searches tuned to your resume...")
+                    part2 = find_live_postings(extra, max_live=6, max_checks=8)
+                    seen_urls = {p["url"] for p in part["live"]}
+                    for posting in part2["live"]:
+                        if posting["url"] not in seen_urls:
+                            seen_urls.add(posting["url"])
+                            part["live"].append(posting)
+                    part["fetched"] += part2["fetched"]
+                    part["checked"] += part2["checked"]
+                    part["links_unverified"] = (part["links_unverified"]
+                                                and part2["links_unverified"])
+                part["live"] = part["live"][:12]
                 skeleton.empty()
-                # Show the keywords actually searched.
-                analysis["search_keywords"] = list(keywords)
+                # Show all the terms actually searched.
+                analysis["search_keywords"] = list(keywords) + extra
                 status.caption("Scoring your matches and checking boards...")
+                level = analysis.get("level") or ""
                 preferences = (
-                    f"The student prefers {work_mode.lower()} work"
+                    (f"Student level: {level}. " if level else "")
+                    + f"The student prefers {work_mode.lower()} work"
                     + (" and needs a stipend." if stipend_required else "."))
                 # Gemini scores the real postings while the board search
                 # pages are link-checked in a worker thread at the same time.
                 boards_future = pool.submit(check_board_pages, part["pages"])
                 score_fit(analysis, part["live"], preferences)
                 working_pages, unverified_pages = boards_future.result()
+            # Best fits first, so the ordering itself reflects the resume.
+            part["live"].sort(key=lambda m: -(m.get("fit_score") or 0))
             # Board cards get the instant local score.
             score_fit(analysis, working_pages, preferences, use_gemini=False)
             status.empty()
