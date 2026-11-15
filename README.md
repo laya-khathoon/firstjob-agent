@@ -36,3 +36,5 @@ Every link returned is fetched and checked before it is shown; anything that can
 
 ## License
 MIT - see LICENSE.
+
+*Live demo:* https://firstjob-agent.streamlit.app/
