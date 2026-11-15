@@ -38,3 +38,5 @@ Every link returned is fetched and checked before it is shown; anything that can
 MIT - see LICENSE.
 
 *Live demo:* https://firstjob-agent.streamlit.app/
+
+*Built with:* Python, Streamlit, Google Gemini, Beautiful Soup
