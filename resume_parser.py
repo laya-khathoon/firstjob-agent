@@ -7,6 +7,7 @@ Every function degrades gracefully when no key is set.
 import json
 import os
 import re
+import time
 
 # Fallback model order, used only if live discovery through the API fails.
 # Availability and free-tier quota vary by key and project, so the real list
@@ -135,23 +136,10 @@ WORKING_MODEL = None
 _DISCOVERED = None
 
 
-def ask_gemini(prompt, max_output_tokens=None):
-    """Send one prompt to Gemini. Returns the reply text, or None if no key."""
+def _attempt_chain(client, models, prompt, config, errors):
+    """Try each model in order. Returns the reply text, or None if all fail;
+    appends "model: error" strings to errors."""
     global LAST_ERROR, LAST_MODEL, WORKING_MODEL
-    client = get_client()
-    if client is None:
-        return None
-    override = os.environ.get("GEMINI_MODEL")
-    if override:
-        models = [override]
-    else:
-        # The last working model goes first; behind it, the live-discovered
-        # list for this key, or the hardcoded candidates if discovery failed.
-        discovered = _discover_models(client) or MODEL_CANDIDATES
-        models = ([WORKING_MODEL] if WORKING_MODEL else []) \
-            + [m for m in discovered if m != WORKING_MODEL]
-    config = _make_config(max_output_tokens)
-    errors = []
     for model in models:
         # Try the fast config first; if this SDK/model rejects it, retry plain.
         for cfg in (config, None):
@@ -176,8 +164,41 @@ def ask_gemini(prompt, max_output_tokens=None):
                         or "quota" in msg.lower()):
                     break
                 continue
-    LAST_ERROR = "; ".join(e[:160] for e in errors)[:300]
     return None
+
+
+def ask_gemini(prompt, max_output_tokens=None):
+    """Send one prompt to Gemini. Returns the reply text, or None if no key.
+
+    If every model fails with a short-lived rate limit (429), waits 20s and
+    retries the chain once - free-tier per-minute limits clear that fast.
+    Daily-quota errors are not retried.
+    """
+    global LAST_ERROR
+    client = get_client()
+    if client is None:
+        return None
+    override = os.environ.get("GEMINI_MODEL")
+    if override:
+        models = [override]
+    else:
+        # The last working model goes first; behind it, the live-discovered
+        # list for this key, or the hardcoded candidates if discovery failed.
+        discovered = _discover_models(client) or MODEL_CANDIDATES
+        models = ([WORKING_MODEL] if WORKING_MODEL else []) \
+            + [m for m in discovered if m != WORKING_MODEL]
+    config = _make_config(max_output_tokens)
+    errors = []
+    text = _attempt_chain(client, models, prompt, config, errors)
+    if (text is None and errors
+            and any("429" in e or "RESOURCE_EXHAUSTED" in e
+                    or "quota" in e.lower() for e in errors)
+            and not any("day" in e.lower() for e in errors)):
+        time.sleep(20)
+        text = _attempt_chain(client, models, prompt, config, errors)
+    if text is None:
+        LAST_ERROR = "; ".join(e[:160] for e in errors)[:300]
+    return text
 
 
 def ask_gemini_json(prompt, max_output_tokens=None):
