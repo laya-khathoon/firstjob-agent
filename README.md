@@ -1,6 +1,6 @@
 # FirstJob Agent
 
-Find internships you actually qualify for. Built for Code for a Billion 2026 (Code for India), track: Tech Employment for Youth.
+Find internships you actually qualify for. Built for Code for a Billion 2026 (Code for India), track: Other.
 
 **Live demo:** https://firstjob-agent.streamlit.app/
 
