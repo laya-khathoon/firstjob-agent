@@ -34,6 +34,12 @@ Every link returned is fetched and checked before it is shown; anything that can
 - Coverage is only as good as the public boards above - many internships are only on LinkedIn or company career pages, which do not allow scraping.
 - The Gemini free tier has daily quota limits; when quota runs out the app falls back to keyword matching until it resets.
 
+## Run the tests
+```
+python -m pytest
+```
+The test suite runs fully offline (no API key or network needed): resume parsing, fit scoring, internship-page parsing, Gemini JSON handling and apply-link printing.
+
 ## License
 MIT - see LICENSE.
 
