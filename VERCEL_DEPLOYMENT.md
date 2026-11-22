@@ -14,11 +14,11 @@ The Vercel version uses a static, mobile-friendly web page and a stateless Pytho
 1. Import `laya-khathoon/firstjob-agent` in Vercel, using the free Hobby team.
 2. Use production branch `main`, root directory `./` and Application Preset `Other`.
 3. The repository configuration sets the output directory to `public`. Leave the build command empty.
-4. In Vercel's private environment settings add `GEMINI_API_KEY` as a sensitive value for Production and Preview. Never commit a key or put it into the HTML.
+4. In Vercel's private environment settings add `GEMINI_API_KEY` as a Secret for Production and Preview. Never commit a key or put it into the HTML. Also set the non-secret config variable `GEMINI_MODEL` to a model currently available to that key. This deployment was tested with `gemini-3.6-flash` on November 22, 2026; the older 2.5 model names returned 404 for this key.
 5. Deploy, then open the production URL. Submit a fictional resume and confirm results render. Try a PDF, validation errors and application drafting.
 6. Changing an environment variable requires another deployment before that value is used by the running app.
 
-An optional `GEMINI_MODEL` variable selects one model. Otherwise the API tries Gemini 2.5 Flash Lite and Gemini 2.5 Flash, with bounded timeouts. If Gemini is unavailable or quota is exhausted, the UI labels basic keyword analysis clearly. Drafting needs a working Gemini key and quota.
+`GEMINI_MODEL` selects the model. Without it, the code tries older 2.5 names that may no longer be available to your key, so keep the verified model setting when redeploying. Requests have bounded timeouts. If Gemini is unavailable or quota is exhausted, the UI labels basic keyword analysis clearly. Drafting needs a working Gemini key and quota.
 
 ## What the results mean
 
