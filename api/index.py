@@ -4,6 +4,7 @@ import base64
 import io
 import json
 import os
+import re
 import sys
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
@@ -72,8 +73,13 @@ def run_action(data):
     stipend = bool(data.get("stipend", False))
     analysis = rp.analyze_resume(text, roles, mode, stipend)
     # Always tune keywords to this resume, even when Gemini is unavailable.
+    if analysis.get("source") == "fallback":
+        analysis["skills"] = [skill for skill in rp.KNOWN_SKILLS
+                              if re.search(r"(?<![\w+#])" + re.escape(skill) + r"(?![\w+#])", text, re.I)]
     skills = analysis.get("skills") or []
-    keywords = list(dict.fromkeys((analysis.get("search_keywords") or [])[:2] + skills[:2]))[:3]
+    suggested = (analysis.get("search_keywords") or [])[:2]
+    keywords = list(dict.fromkeys((suggested + skills[:2]) if analysis.get("source") == "gemini"
+                                 else (skills[:2] + suggested)))[:3]
     if not keywords:
         keywords = rp.heuristic_analysis(text, roles).get("search_keywords") or ["internship"]
     with ThreadPoolExecutor(max_workers=2) as pool:
