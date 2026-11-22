@@ -2,7 +2,13 @@
 
 Find internships you actually qualify for. Built for Code for a Billion 2026 (Code for India), track: Other.
 
-**Live demo:** https://firstjob-agent.streamlit.app/
+**Live demo (Vercel):** https://firstjob-agent.vercel.app/
+
+**Previous Streamlit demo, kept as a backup:** https://firstjob-agent.streamlit.app/
+
+The Vercel version has a static web interface, PDF/text resume analysis, live board searches and reviewable application drafts. Setup, limits and Windows sync steps: [Vercel deployment guide](VERCEL_DEPLOYMENT.md).
+
+Vercel fit scores are keyword estimates. Work mode and stipend are preferences, not verified listing filters. AI features depend on the configured Gemini model and available free-tier quota; basic search still works when AI is unavailable.
 
 ## What it does
 - Paste your resume (or upload a PDF) and answer 3 quick questions.
@@ -12,7 +18,8 @@ Find internships you actually qualify for. Built for Code for a Billion 2026 (Co
 - Nothing is stored: your resume stays in the session only.
 
 ## How it is organized
-- `app.py` - the Streamlit app (resume upload, questions, results, drafts).
+- `public/index.html` and `api/index.py` - the Vercel interface and stateless Python API.
+- `app.py` - the original Streamlit app (resume upload, questions, results, drafts).
 - `resume_parser.py` - resume analysis and fit scoring; uses Gemini when a key is set and a keyword scan when it is not.
 - `internship_searcher.py` - live posting search and link checks (Internshala, Unstop, AICTE portal).
 - `application_drafter.py` - the tailored application message for a chosen match.
