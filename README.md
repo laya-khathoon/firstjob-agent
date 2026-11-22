@@ -11,6 +11,13 @@ Find internships you actually qualify for. Built for Code for a Billion 2026 (Co
 - No invented listings: every match links to a real posting or a live search page on the site itself, and every link is checked before it is shown.
 - Nothing is stored: your resume stays in the session only.
 
+## How it is organized
+- `app.py` - the Streamlit app (resume upload, questions, results, drafts).
+- `resume_parser.py` - resume analysis and fit scoring; uses Gemini when a key is set and a keyword scan when it is not.
+- `internship_searcher.py` - live posting search and link checks (Internshala, Unstop, AICTE portal).
+- `application_drafter.py` - the tailored application message for a chosen match.
+- `test_*.py` - offline tests (`python -m pytest`); the fallback paths and link building are covered without network or API calls.
+
 ## Run it locally
 ```
 pip install -r requirements.txt
