@@ -41,10 +41,14 @@ rp.ask_gemini = bounded_gemini
 
 
 def run_action(data):
+    if not isinstance(data, dict):
+        raise ValueError("Send a JSON object.")
     action = data.get("action", "search")
     if action == "draft":
         analysis = data.get("analysis") or {}
         match = data.get("match") or {}
+        if not isinstance(analysis, dict) or not isinstance(match, dict):
+            raise ValueError("Invalid draft input.")
         resume_facts = {k: analysis.get(k) for k in ("skills", "education", "projects", "summary")}
         context = json.dumps({"resume_facts": resume_facts, "internship": match}, ensure_ascii=False)[:16000]
         text = bounded_gemini(
@@ -64,11 +68,16 @@ def run_action(data):
             raise ValueError("That PDF could not be read.")
         if len(raw) > 2_000_000:
             raise ValueError("Choose a PDF smaller than 2 MB.")
+        if not raw.startswith(b"%PDF-"):
+            raise ValueError("Choose a real PDF file.")
         text = rp.extract_pdf_text(io.BytesIO(raw))
     if len(text) < 30:
         raise ValueError("Add at least 30 characters of resume text, or upload a readable PDF.")
     text = text[:12000]
-    roles = [r for r in data.get("roles", []) if r in rp.ROLE_AREA_KEYWORDS][:5]
+    supplied_roles = data.get("roles", [])
+    if not isinstance(supplied_roles, list) or not all(isinstance(r, str) for r in supplied_roles):
+        raise ValueError("Invalid roles.")
+    roles = [r for r in supplied_roles if r in rp.ROLE_AREA_KEYWORDS][:5]
     mode = str(data.get("mode", "Any"))[:30]
     stipend = bool(data.get("stipend", False))
     analysis = rp.analyze_resume(text, roles, mode, stipend)
